@@ -48,6 +48,27 @@ sudo systemctl stop hivpn@mypassword
 
 ## Client Setup
 
+**Load TUN kernel module (required):**
+```bash
+sudo modprobe tun
+```
+
+If you get "Module tun not found", reinstall kernel modules and **reboot**:
+```bash
+# Arch Linux
+sudo pacman -S linux
+sudo reboot
+
+# Debian/Ubuntu
+sudo apt install --reinstall linux-modules-$(uname -r)
+sudo reboot
+```
+
+To load automatically on boot:
+```bash
+echo "tun" | sudo tee /etc/modules-load.d/tun.conf
+```
+
 **Connect:**
 ```bash
 sudo hivpn client 1.2.3.4 mypassword
