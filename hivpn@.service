@@ -1,0 +1,13 @@
+[Unit]
+Description=HiVPN Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hivpn server %i
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -20,5 +20,15 @@ sudo rm -f /usr/local/bin/hivpn
 sudo cp dist/hivpn /usr/local/bin/hivpn
 sudo chmod +x /usr/local/bin/hivpn
 
+echo "Installing systemd service..."
+sudo cp hivpn@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+echo ""
 echo "✓ Installed! Run: hivpn"
+echo ""
+echo "Background service:"
+echo "  sudo systemctl start hivpn@yourpassword"
+echo "  sudo systemctl enable hivpn@yourpassword"
+echo "  sudo journalctl -u hivpn@yourpassword -f"
 echo ""

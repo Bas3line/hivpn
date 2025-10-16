@@ -3,6 +3,7 @@ import struct
 import select
 import logging
 import os
+import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -12,6 +13,27 @@ class VPNClient:
         self.server_port = server_port
         self.password = password
         self.running = False
+        self.tun = None
+        self.original_routes = []
+
+    def save_routes(self):
+        try:
+            result = subprocess.run('ip route show', shell=True, capture_output=True, text=True)
+            self.original_routes = result.stdout.strip().split('\n')
+            logging.info("Saved original routes")
+        except:
+            pass
+
+    def restore_routes(self):
+        try:
+            if self.tun:
+                os.system('ip link set tun0 down 2>/dev/null')
+                os.system('ip link delete tun0 2>/dev/null')
+
+            os.system('ip route flush cache')
+            logging.info("Network routes restored")
+        except Exception as e:
+            logging.error(f"Error restoring routes: {e}")
 
     def create_tun(self, name: str = 'tun0'):
         import fcntl
@@ -47,6 +69,8 @@ class VPNClient:
             return False
 
     def connect(self):
+        self.save_routes()
+
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
@@ -56,37 +80,44 @@ class VPNClient:
             if not self.authenticate(sock):
                 logging.error("Authentication failed")
                 sock.close()
+                self.restore_routes()
                 return
 
             sock.settimeout(None)
             logging.info(f"Connected to VPN server {self.server_host}:{self.server_port}")
 
-            tun = self.create_tun()
+            self.tun = self.create_tun()
             self.running = True
 
             while self.running:
-                readable, _, _ = select.select([sock, tun], [], [], 1)
+                readable, _, _ = select.select([sock, self.tun], [], [], 1)
 
                 for s in readable:
                     try:
                         if s == sock:
                             data = sock.recv(4096)
                             if not data:
-                                logging.warning("Server closed connection")
+                                logging.warning("Server disconnected, restoring network...")
+                                self.restore_routes()
                                 return
-                            tun.write(data)
-                        elif s == tun:
-                            packet = tun.read(4096)
+                            self.tun.write(data)
+                        elif s == self.tun:
+                            packet = self.tun.read(4096)
                             if packet:
                                 sock.send(packet)
                     except Exception as e:
-                        logging.error(f"Error processing packet: {e}")
+                        logging.error(f"Connection lost: {e}")
+                        logging.info("Restoring network...")
+                        self.restore_routes()
                         return
 
         except KeyboardInterrupt:
             logging.info("Disconnecting...")
+            self.restore_routes()
         except Exception as e:
             logging.error(f"Connection error: {e}")
+            logging.info("Restoring network...")
+            self.restore_routes()
         finally:
             self.running = False
             try:
@@ -94,6 +125,7 @@ class VPNClient:
             except:
                 pass
             try:
-                tun.close()
+                if self.tun:
+                    self.tun.close()
             except:
                 pass
