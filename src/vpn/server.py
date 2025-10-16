@@ -38,6 +38,9 @@ class VPNServer:
             interface = os.popen('ip route | grep default').read().split()[4]
             os.system(f'iptables -t nat -C POSTROUTING -o {interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o {interface} -j MASQUERADE')
             os.system(f'iptables -C FORWARD -i {name} -j ACCEPT 2>/dev/null || iptables -A FORWARD -i {name} -j ACCEPT')
+            os.system(f'iptables -C FORWARD -o {name} -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -o {name} -m state --state RELATED,ESTABLISHED -j ACCEPT')
+            os.system(f'iptables -C INPUT -i {name} -j ACCEPT 2>/dev/null || iptables -A INPUT -i {name} -j ACCEPT')
+            os.system(f'iptables -C OUTPUT -o {name} -j ACCEPT 2>/dev/null || iptables -A OUTPUT -o {name} -j ACCEPT')
 
             logging.info(f"TUN interface {name} created with IP 10.8.0.1/24")
             return tun
@@ -149,7 +152,8 @@ class VPNServer:
                 except socket.timeout:
                     continue
         except KeyboardInterrupt:
-            logging.info("Shutting down server...")
+            print("\n\nShutting down VPN server...")
+            logging.info("Server stopped")
         finally:
             self.running = False
             with self.lock:

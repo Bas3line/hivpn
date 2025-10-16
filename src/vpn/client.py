@@ -20,18 +20,41 @@ class VPNClient:
         try:
             result = subprocess.run('ip route show', shell=True, capture_output=True, text=True)
             self.original_routes = result.stdout.strip().split('\n')
-            logging.info("Saved original routes")
-        except:
-            pass
+
+            result = subprocess.run('ip route show default', shell=True, capture_output=True, text=True)
+            self.original_default = result.stdout.strip()
+
+            try:
+                with open('/etc/resolv.conf', 'r') as f:
+                    self.original_dns = f.read()
+            except:
+                self.original_dns = None
+
+            logging.info("Saved original routes and DNS")
+        except Exception as e:
+            logging.error(f"Error saving routes: {e}")
 
     def restore_routes(self):
         try:
+            os.system('ip route del default via 10.8.0.1 dev tun0 2>/dev/null')
+
             if self.tun:
                 os.system('ip link set tun0 down 2>/dev/null')
                 os.system('ip link delete tun0 2>/dev/null')
 
+            if hasattr(self, 'original_default') and self.original_default:
+                os.system('ip route del default 2>/dev/null')
+                os.system(f'ip route add {self.original_default}')
+
+            if hasattr(self, 'original_dns') and self.original_dns:
+                try:
+                    with open('/etc/resolv.conf', 'w') as f:
+                        f.write(self.original_dns)
+                except:
+                    pass
+
             os.system('ip route flush cache')
-            logging.info("Network routes restored")
+            logging.info("Network routes and DNS restored")
         except Exception as e:
             logging.error(f"Error restoring routes: {e}")
 
@@ -50,9 +73,31 @@ class VPNClient:
             os.system(f'ip addr flush dev {name} 2>/dev/null')
             os.system(f'ip addr add 10.8.0.2/24 dev {name}')
             os.system(f'ip link set {name} up')
-            os.system(f'ip route add default via 10.8.0.1 dev {name} metric 50')
 
-            logging.info(f"TUN interface {name} created with IP 10.8.0.2/24")
+            result = subprocess.run('ip route show default', shell=True, capture_output=True, text=True)
+            default_route = result.stdout.strip()
+            if default_route:
+                parts = default_route.split()
+                if 'via' in parts:
+                    gw_idx = parts.index('via') + 1
+                    original_gw = parts[gw_idx]
+                    dev_idx = parts.index('dev') + 1 if 'dev' in parts else -1
+                    original_dev = parts[dev_idx] if dev_idx > 0 else None
+
+                    if original_dev:
+                        os.system(f'ip route add {self.server_host}/32 via {original_gw} dev {original_dev}')
+
+            os.system('ip route del default 2>/dev/null')
+            os.system(f'ip route add default via 10.8.0.1 dev {name}')
+
+            try:
+                with open('/etc/resolv.conf', 'w') as f:
+                    f.write('nameserver 8.8.8.8\nnameserver 1.1.1.1\n')
+                logging.info("DNS configured to use 8.8.8.8 and 1.1.1.1")
+            except Exception as e:
+                logging.warning(f"Could not update DNS: {e}")
+
+            logging.info(f"TUN interface {name} created with IP 10.8.0.2/24 - All traffic routed through VPN")
             return tun
         except Exception as e:
             logging.error(f"Failed to create TUN interface: {e}")
@@ -112,8 +157,9 @@ class VPNClient:
                         return
 
         except KeyboardInterrupt:
-            logging.info("Disconnecting...")
+            print("\n\nDisconnecting from VPN...")
             self.restore_routes()
+            print("Network restored. Goodbye!")
         except Exception as e:
             logging.error(f"Connection error: {e}")
             logging.info("Restoring network...")
